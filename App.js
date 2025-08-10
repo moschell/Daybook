@@ -745,4 +745,78 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#1e293b',
     marginBottom: 16,
-    textAlign:
+    textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  pickerContainer: {
+    marginBottom: 16,
+  },
+  pickerLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 8,
+  },
+  pickerScroll: {
+    maxHeight: 120,
+  },
+  pickerOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 4,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pickerOptionSelected: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#3b82f6',
+  },
+  pickerOptionText: {
+    fontSize: 16,
+    color: '#64748b',
+  },
+  pickerOptionTextSelected: {
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#e2e8f0',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#64748b',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+});
+
+export default DaybookApp;
