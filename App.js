@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,13 @@ import {
   StyleSheet,
   Dimensions,
   Platform,
+  AppState,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import RNFS from 'react-native-fs';
+import Share from 'react-native-share';
+import BackgroundTimer from 'react-native-background-timer';
+import PushNotification from 'react-native-push-notification';
 
 const { width } = Dimensions.get('window');
 
@@ -27,6 +32,7 @@ const Icon = ({ name, size = 20, color = '#64748b' }) => {
     'stop': '⏹️',
     'play': '▶️',
     'time': '⏰',
+    'warning': '⚠️',
   };
   
   return (
@@ -42,10 +48,49 @@ const DaybookApp = () => {
   const [timeEntries, setTimeEntries] = useState([]);
   const [activeTimer, setActiveTimer] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [timerStartTime, setTimerStartTime] = useState(null);
   const [showClientModal, setShowClientModal] = useState(false);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [newClient, setNewClient] = useState('');
   const [newProject, setNewProject] = useState({ name: '', clientId: '', rate: '' });
+  const [isExporting, setIsExporting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const appState = useRef(AppState.currentState);
+  const backgroundStartTime = useRef(null);
+
+  // Initialize push notifications
+  useEffect(() => {
+    PushNotification.configure({
+      onNotification: function(notification) {
+        console.log('Notification:', notification);
+      },
+      requestPermissions: Platform.OS === 'ios',
+    });
+  }, []);
+
+  // Handle app state changes for background timer
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState) => {
+      if (activeTimer) {
+        if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+          // App came to foreground, calculate time elapsed
+          if (backgroundStartTime.current) {
+            const timeElapsed = Math.floor((Date.now() - backgroundStartTime.current) / 1000);
+            setCurrentTime(prev => prev + timeElapsed);
+            backgroundStartTime.current = null;
+          }
+        } else if (appState.current === 'active' && nextAppState.match(/inactive|background/)) {
+          // App going to background
+          backgroundStartTime.current = Date.now();
+        }
+      }
+      appState.current = nextAppState;
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, [activeTimer]);
 
   // Load data on app start
   useEffect(() => {
@@ -55,26 +100,35 @@ const DaybookApp = () => {
   // Timer effect
   useEffect(() => {
     let interval = null;
-    if (activeTimer) {
+    if (activeTimer && appState.current === 'active') {
       interval = setInterval(() => {
         setCurrentTime(time => time + 1);
       }, 1000);
-    } else {
-      clearInterval(interval);
     }
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [activeTimer]);
 
   // Save data when state changes
   useEffect(() => {
-    saveData();
+    if (clients.length > 0 || projects.length > 0 || timeEntries.length > 0) {
+      saveData();
+    }
   }, [clients, projects, timeEntries]);
+
+  const showError = (message) => {
+    setError(message);
+    setTimeout(() => setError(null), 5000);
+  };
 
   const loadData = async () => {
     try {
       const clientsData = await AsyncStorage.getItem('clients');
       const projectsData = await AsyncStorage.getItem('projects');
       const entriesData = await AsyncStorage.getItem('timeEntries');
+      const activeTimerData = await AsyncStorage.getItem('activeTimer');
+      const timerData = await AsyncStorage.getItem('timerData');
       
       if (clientsData) setClients(JSON.parse(clientsData));
       if (projectsData) setProjects(JSON.parse(projectsData));
@@ -85,7 +139,19 @@ const DaybookApp = () => {
         }));
         setTimeEntries(entries);
       }
+
+      // Restore active timer if app was closed
+      if (activeTimerData && timerData) {
+        const timerInfo = JSON.parse(timerData);
+        const projectId = JSON.parse(activeTimerData);
+        const elapsedTime = Math.floor((Date.now() - timerInfo.startTime) / 1000);
+        
+        setActiveTimer(projectId);
+        setCurrentTime(timerInfo.initialTime + elapsedTime);
+        setTimerStartTime(timerInfo.startTime);
+      }
     } catch (error) {
+      showError('Error loading data. Please restart the app.');
       console.error('Error loading data:', error);
     }
   };
@@ -96,7 +162,25 @@ const DaybookApp = () => {
       await AsyncStorage.setItem('projects', JSON.stringify(projects));
       await AsyncStorage.setItem('timeEntries', JSON.stringify(timeEntries));
     } catch (error) {
+      showError('Error saving data');
       console.error('Error saving data:', error);
+    }
+  };
+
+  const saveTimerState = async (projectId, startTime, initialTime) => {
+    try {
+      if (projectId) {
+        await AsyncStorage.setItem('activeTimer', JSON.stringify(projectId));
+        await AsyncStorage.setItem('timerData', JSON.stringify({
+          startTime,
+          initialTime
+        }));
+      } else {
+        await AsyncStorage.removeItem('activeTimer');
+        await AsyncStorage.removeItem('timerData');
+      }
+    } catch (error) {
+      console.error('Error saving timer state:', error);
     }
   };
 
@@ -107,40 +191,95 @@ const DaybookApp = () => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const addClient = () => {
-    if (newClient.trim()) {
-      const client = {
-        id: Date.now(),
-        name: newClient.trim(),
-        createdAt: new Date()
-      };
-      setClients([...clients, client]);
-      setNewClient('');
-      setShowClientModal(false);
+  const validateInput = (text, type) => {
+    switch (type) {
+      case 'client':
+        return text.trim().length > 0 && text.trim().length <= 50;
+      case 'project':
+        return text.trim().length > 0 && text.trim().length <= 50;
+      case 'rate':
+        return text === '' || (!isNaN(parseFloat(text)) && parseFloat(text) >= 0 && parseFloat(text) <= 10000);
+      default:
+        return true;
     }
+  };
+
+  const addClient = () => {
+    if (!validateInput(newClient, 'client')) {
+      showError('Client name must be 1-50 characters long');
+      return;
+    }
+
+    // Check for duplicate client names
+    if (clients.some(client => client.name.toLowerCase() === newClient.trim().toLowerCase())) {
+      showError('A client with this name already exists');
+      return;
+    }
+
+    const client = {
+      id: Date.now(),
+      name: newClient.trim(),
+      createdAt: new Date()
+    };
+    setClients([...clients, client]);
+    setNewClient('');
+    setShowClientModal(false);
   };
 
   const addProject = () => {
-    if (newProject.name.trim() && newProject.clientId) {
-      const project = {
-        id: Date.now(),
-        name: newProject.name.trim(),
-        clientId: parseInt(newProject.clientId),
-        rate: parseFloat(newProject.rate) || 0,
-        createdAt: new Date()
-      };
-      setProjects([...projects, project]);
-      setNewProject({ name: '', clientId: '', rate: '' });
-      setShowProjectModal(false);
+    if (!validateInput(newProject.name, 'project')) {
+      showError('Project name must be 1-50 characters long');
+      return;
     }
+
+    if (!newProject.clientId) {
+      showError('Please select a client');
+      return;
+    }
+
+    if (!validateInput(newProject.rate, 'rate')) {
+      showError('Hourly rate must be a valid number between 0 and 10,000');
+      return;
+    }
+
+    // Check for duplicate project names within the same client
+    const existingProject = projects.find(project => 
+      project.clientId === parseInt(newProject.clientId) && 
+      project.name.toLowerCase() === newProject.name.trim().toLowerCase()
+    );
+
+    if (existingProject) {
+      showError('A project with this name already exists for this client');
+      return;
+    }
+
+    const project = {
+      id: Date.now(),
+      name: newProject.name.trim(),
+      clientId: parseInt(newProject.clientId),
+      rate: parseFloat(newProject.rate) || 0,
+      createdAt: new Date()
+    };
+    setProjects([...projects, project]);
+    setNewProject({ name: '', clientId: '', rate: '' });
+    setShowProjectModal(false);
   };
 
   const startTimer = (projectId) => {
-    if (activeTimer) {
+    if (activeTimer && activeTimer !== projectId) {
       stopTimer();
     }
+
+    const startTime = Date.now();
     setActiveTimer(projectId);
     setCurrentTime(0);
+    setTimerStartTime(startTime);
+    saveTimerState(projectId, startTime, 0);
+
+    // Send notification permission request on iOS
+    if (Platform.OS === 'ios') {
+      PushNotification.requestPermissions();
+    }
   };
 
   const pauseTimer = () => {
@@ -152,10 +291,20 @@ const DaybookApp = () => {
         date: new Date(),
         status: 'paused'
       };
-      setTimeEntries([...timeEntries, entry]);
+      setTimeEntries(prev => [...prev, entry]);
+      
+      // Send local notification
+      PushNotification.localNotification({
+        title: 'Timer Paused',
+        message: `${formatTime(currentTime)} recorded for your project`,
+        playSound: true,
+      });
     }
+    
     setActiveTimer(null);
     setCurrentTime(0);
+    setTimerStartTime(null);
+    saveTimerState(null);
   };
 
   const stopTimer = () => {
@@ -167,37 +316,65 @@ const DaybookApp = () => {
         date: new Date(),
         status: 'completed'
       };
-      setTimeEntries([...timeEntries, entry]);
+      setTimeEntries(prev => [...prev, entry]);
+      
+      // Send local notification
+      PushNotification.localNotification({
+        title: 'Timer Stopped',
+        message: `${formatTime(currentTime)} recorded for your project`,
+        playSound: true,
+      });
     }
+    
     setActiveTimer(null);
     setCurrentTime(0);
+    setTimerStartTime(null);
+    saveTimerState(null);
   };
 
-  const exportToCSV = () => {
-    const headers = 'Date,Client,Project,Duration (hours),Rate,Total\n';
-    const rows = timeEntries.map(entry => {
-      const project = projects.find(p => p.id === entry.projectId);
-      const client = clients.find(c => c.id === project?.clientId);
-      const hours = (entry.duration / 3600).toFixed(2);
-      const total = (hours * (project?.rate || 0)).toFixed(2);
-      
-      return `${entry.date.toLocaleDateString()},${client?.name || 'Unknown'},${project?.name || 'Unknown'},${hours},${project?.rate || 0},${total}`;
-    }).join('\n');
+  const exportToCSV = async () => {
+    if (timeEntries.length === 0) {
+      showError('No time entries to export');
+      return;
+    }
 
-    const csvContent = headers + rows;
+    setIsExporting(true);
     
-    // For now, show in alert - you can implement file sharing later
-    Alert.alert(
-      'CSV Export', 
-      'Time tracking data exported successfully!\n\nIn the final version, this will create a file you can share.',
-      [
-        { text: 'Copy Data', onPress: () => {
-          // In a real app, you'd copy to clipboard or share via iOS sharing
-          console.log(csvContent);
-        }},
-        { text: 'OK' }
-      ]
-    );
+    try {
+      const headers = 'Date,Client,Project,Duration (hours),Rate,Total,Status\n';
+      const rows = timeEntries.map(entry => {
+        const project = projects.find(p => p.id === entry.projectId);
+        const client = clients.find(c => c.id === project?.clientId);
+        const hours = (entry.duration / 3600).toFixed(2);
+        const total = (hours * (project?.rate || 0)).toFixed(2);
+        
+        return `"${entry.date.toLocaleDateString()}","${client?.name || 'Unknown'}","${project?.name || 'Unknown'}",${hours},${project?.rate || 0},${total},"${entry.status || 'completed'}"`;
+      }).join('\n');
+
+      const csvContent = headers + rows;
+      const fileName = `daybook-export-${new Date().toISOString().split('T')[0]}.csv`;
+      const path = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+      
+      await RNFS.writeFile(path, csvContent, 'utf8');
+      
+      const shareOptions = {
+        title: 'Export Time Tracking Data',
+        url: `file://${path}`,
+        type: 'text/csv',
+        filename: fileName,
+      };
+
+      await Share.open(shareOptions);
+    } catch (error) {
+      console.error('Export error:', error);
+      if (error.message.includes('User did not share')) {
+        // User cancelled sharing, not an error
+        return;
+      }
+      showError('Failed to export data. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const getProjectWithClient = (projectId) => {
@@ -213,15 +390,35 @@ const DaybookApp = () => {
     return (total / 3600).toFixed(1);
   };
 
+  const getTotalEarnings = (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project || !project.rate) return 0;
+    
+    const totalSeconds = timeEntries
+      .filter(entry => entry.projectId === projectId)
+      .reduce((sum, entry) => sum + entry.duration, 0);
+    
+    const totalHours = totalSeconds / 3600;
+    return (totalHours * project.rate).toFixed(2);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+      
+      {/* Error Message */}
+      {error && (
+        <View style={styles.errorBanner}>
+          <Icon name="warning" size={16} color="#dc2626" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Daybook</Text>
-          <Text style={styles.subtitle}>Simple, beautiful time tracking</Text>
+          <Text style={styles.subtitle}>Professional time tracking</Text>
         </View>
 
         {/* Action Buttons */}
@@ -231,18 +428,28 @@ const DaybookApp = () => {
             <Text style={styles.actionButtonText}>Add Client</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.actionButton} onPress={() => setShowProjectModal(true)}>
+          <TouchableOpacity 
+            style={[styles.actionButton, clients.length === 0 && styles.disabledButton]}
+            onPress={() => setShowProjectModal(true)}
+            disabled={clients.length === 0}
+          >
             <Icon name="briefcase" size={20} color="#64748b" />
             <Text style={styles.actionButtonText}>Add Project</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={[styles.actionButton, styles.exportButton, timeEntries.length === 0 && styles.disabledButton]} 
+            style={[
+              styles.actionButton, 
+              styles.exportButton, 
+              (timeEntries.length === 0 || isExporting) && styles.disabledButton
+            ]} 
             onPress={exportToCSV}
-            disabled={timeEntries.length === 0}
+            disabled={timeEntries.length === 0 || isExporting}
           >
             <Icon name="download" size={20} color="white" />
-            <Text style={styles.exportButtonText}>Export CSV</Text>
+            <Text style={styles.exportButtonText}>
+              {isExporting ? 'Exporting...' : 'Export CSV'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -275,6 +482,7 @@ const DaybookApp = () => {
             const client = clients.find(c => c.id === project.clientId);
             const isActive = activeTimer === project.id;
             const totalHours = getTotalHours(project.id);
+            const totalEarnings = getTotalEarnings(project.id);
             
             return (
               <View 
@@ -292,6 +500,12 @@ const DaybookApp = () => {
                   <View style={styles.projectStats}>
                     <Text style={styles.statsLabel}>Total Hours</Text>
                     <Text style={styles.statsValue}>{totalHours}h</Text>
+                    {project.rate > 0 && (
+                      <>
+                        <Text style={styles.statsLabel}>Earnings</Text>
+                        <Text style={styles.statsValue}>${totalEarnings}</Text>
+                      </>
+                    )}
                   </View>
                 </View>
                 
@@ -333,7 +547,7 @@ const DaybookApp = () => {
                       {client?.name || 'Unknown'} • {project?.name || 'Unknown'}
                     </Text>
                     <Text style={styles.entryDetails}>
-                      {entry.date.toLocaleDateString()} • {hours}h
+                      {entry.date.toLocaleDateString()} • {hours}h • {entry.status}
                     </Text>
                   </View>
                   <View style={styles.entryTime}>
@@ -368,15 +582,20 @@ const DaybookApp = () => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add New Client</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, !validateInput(newClient, 'client') && newClient.length > 0 && styles.inputError]}
               value={newClient}
               onChangeText={setNewClient}
-              placeholder="Client name"
+              placeholder="Client name (1-50 characters)"
               returnKeyType="done"
               onSubmitEditing={addClient}
+              maxLength={50}
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.primaryButton} onPress={addClient}>
+              <TouchableOpacity 
+                style={[styles.primaryButton, !validateInput(newClient, 'client') && styles.disabledButton]} 
+                onPress={addClient}
+                disabled={!validateInput(newClient, 'client')}
+              >
                 <Text style={styles.primaryButtonText}>Add Client</Text>
               </TouchableOpacity>
               <TouchableOpacity 
@@ -399,48 +618,55 @@ const DaybookApp = () => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add New Project</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, !validateInput(newProject.name, 'project') && newProject.name.length > 0 && styles.inputError]}
               value={newProject.name}
               onChangeText={(text) => setNewProject({...newProject, name: text})}
-              placeholder="Project name"
+              placeholder="Project name (1-50 characters)"
+              maxLength={50}
             />
-            <View style={styles.pickerContainer}>
-              <Text style={styles.pickerLabel}>Select Client:</Text>
-              <ScrollView style={styles.pickerScroll} nestedScrollEnabled={true}>
-                {clients.map(client => (
-                  <TouchableOpacity
-                    key={client.id}
-                    style={[
-                      styles.pickerOption,
-                      newProject.clientId == client.id && styles.pickerOptionSelected
-                    ]}
-                    onPress={() => setNewProject({...newProject, clientId: client.id.toString()})}
-                  >
-                    <Text style={[
-                      styles.pickerOptionText,
-                      newProject.clientId == client.id && styles.pickerOptionTextSelected
-                    ]}>
-                      {client.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
+            
+            {clients.length > 0 ? (
+              <View style={styles.pickerContainer}>
+                <Text style={styles.pickerLabel}>Select Client:</Text>
+                <ScrollView style={styles.pickerScroll} nestedScrollEnabled={true}>
+                  {clients.map(client => (
+                    <TouchableOpacity
+                      key={client.id}
+                      style={[
+                        styles.pickerOption,
+                        newProject.clientId == client.id && styles.pickerOptionSelected
+                      ]}
+                      onPress={() => setNewProject({...newProject, clientId: client.id.toString()})}
+                    >
+                      <Text style={[
+                        styles.pickerOptionText,
+                        newProject.clientId == client.id && styles.pickerOptionTextSelected
+                      ]}>
+                        {client.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : (
+              <Text style={styles.noClientsText}>Please add a client first</Text>
+            )}
+            
             <TextInput
-              style={styles.input}
+              style={[styles.input, !validateInput(newProject.rate, 'rate') && newProject.rate.length > 0 && styles.inputError]}
               value={newProject.rate}
               onChangeText={(text) => setNewProject({...newProject, rate: text})}
-              placeholder="Hourly rate (optional)"
+              placeholder="Hourly rate (optional, 0-10,000)"
               keyboardType="numeric"
             />
             <View style={styles.modalButtons}>
               <TouchableOpacity 
                 style={[
                   styles.primaryButton,
-                  (!newProject.name.trim() || !newProject.clientId) && styles.disabledButton
+                  (!validateInput(newProject.name, 'project') || !newProject.clientId || !validateInput(newProject.rate, 'rate')) && styles.disabledButton
                 ]} 
                 onPress={addProject}
-                disabled={!newProject.name.trim() || !newProject.clientId}
+                disabled={!validateInput(newProject.name, 'project') || !newProject.clientId || !validateInput(newProject.rate, 'rate')}
               >
                 <Text style={styles.primaryButtonText}>Add Project</Text>
               </TouchableOpacity>
@@ -467,6 +693,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   scrollView: {
+    flex: 1,
+  },
+  errorBanner: {
+    backgroundColor: '#fef2f2',
+    borderLeftWidth: 4,
+    borderLeftColor: '#dc2626',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 14,
+    fontWeight: '500',
     flex: 1,
   },
   header: {
@@ -507,6 +752,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     gap: 8,
+    minWidth: 100,
   },
   actionButtonText: {
     color: '#64748b',
@@ -524,299 +770,4 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#cbd5e1',
-    borderColor: '#cbd5e1',
-  },
-  activeTimerCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 20,
-    marginBottom: 32,
-    borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  timerDisplay: {
-    fontSize: 48,
-    fontWeight: '300',
-    color: '#1e293b',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginBottom: 16,
-  },
-  timerProject: {
-    fontSize: 16,
-    color: '#64748b',
-    marginBottom: 24,
-  },
-  timerControls: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  pauseButton: {
-    backgroundColor: '#f59e0b',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  stopButton: {
-    backgroundColor: '#ef4444',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  controlButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  projectsContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 32,
-    gap: 16,
-  },
-  projectCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
-    borderWidth: 2,
-    borderColor: '#e2e8f0',
-  },
-  activeProjectCard: {
-    borderColor: '#3b82f6',
-    backgroundColor: '#eff6ff',
-  },
-  projectHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  projectInfo: {
-    flex: 1,
-  },
-  projectName: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  clientName: {
-    fontSize: 14,
-    color: '#64748b',
-    marginBottom: 4,
-  },
-  projectRate: {
-    fontSize: 14,
-    color: '#059669',
-  },
-  projectStats: {
-    alignItems: 'flex-end',
-  },
-  statsLabel: {
-    fontSize: 12,
-    color: '#64748b',
-    marginBottom: 4,
-  },
-  statsValue: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#1e293b',
-  },
-  timerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  startTimerButton: {
-    backgroundColor: '#3b82f6',
-  },
-  pauseTimerButton: {
-    backgroundColor: '#f59e0b',
-  },
-  timerButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  recentEntriesCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 20,
-    marginBottom: 32,
-    borderRadius: 12,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#1e293b',
-    marginBottom: 16,
-  },
-  entryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  entryInfo: {
-    flex: 1,
-  },
-  entryProject: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  entryDetails: {
-    fontSize: 14,
-    color: '#64748b',
-  },
-  entryTime: {
-    alignItems: 'flex-end',
-  },
-  entryDuration: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1e293b',
-    marginBottom: 2,
-  },
-  entryEarnings: {
-    fontSize: 14,
-    color: '#059669',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 32,
-  },
-  emptyStateTitle: {
-    fontSize: 20,
-    fontWeight: '500',
-    color: '#64748b',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#94a3b8',
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 24,
-    width: width - 40,
-    maxWidth: 400,
-    maxHeight: '80%',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#1e293b',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    marginBottom: 16,
-  },
-  pickerContainer: {
-    marginBottom: 16,
-  },
-  pickerLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1e293b',
-    marginBottom: 8,
-  },
-  pickerScroll: {
-    maxHeight: 120,
-  },
-  pickerOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 4,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  pickerOptionSelected: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#3b82f6',
-  },
-  pickerOptionText: {
-    fontSize: 16,
-    color: '#64748b',
-  },
-  pickerOptionTextSelected: {
-    color: '#3b82f6',
-    fontWeight: '500',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  primaryButton: {
-    flex: 1,
-    backgroundColor: '#3b82f6',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: '#e2e8f0',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  secondaryButtonText: {
-    color: '#64748b',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-});
-
-export default DaybookApp;
+    borderColor: '#cbd5e
