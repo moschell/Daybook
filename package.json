@@ -12,7 +12,12 @@
   "dependencies": {
     "react": "18.2.0",
     "react-native": "0.73.6",
-    "@react-native-async-storage/async-storage": "^1.21.0"
+    "@react-native-async-storage/async-storage": "^1.21.0",
+    "react-native-fs": "^2.20.0",
+    "react-native-share": "^10.0.0",
+    "react-native-background-timer": "^2.4.1",
+    "@react-native-community/push-notification-ios": "^1.11.0",
+    "react-native-push-notification": "^8.1.1"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
