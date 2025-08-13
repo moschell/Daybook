@@ -52,7 +52,7 @@ const DaybookApp = () => {
   const [showClientModal, setShowClientModal] = useState(false);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [newClient, setNewClient] = useState('');
-  const [newProject, setNewProject] = useState({ name: '', clientId: '', rate: '' });
+  const [newProject, setNewProject] = useState({ name: '', clientId: '', rate: '' export default DaybookApp;
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -770,4 +770,310 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#cbd5e1',
-    borderColor: '#cbd5e
+    borderColor: '#cbd5e1',
+  },
+  activeTimerCard: {
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginBottom: 32,
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  timerDisplay: {
+    fontSize: 48,
+    fontWeight: '300',
+    color: '#1e293b',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginBottom: 16,
+  },
+  timerProject: {
+    fontSize: 16,
+    color: '#64748b',
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  timerControls: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  pauseButton: {
+    backgroundColor: '#f59e0b',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  stopButton: {
+    backgroundColor: '#ef4444',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  controlButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  projectsContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 32,
+    gap: 16,
+  },
+  projectCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+  },
+  activeProjectCard: {
+    borderColor: '#3b82f6',
+    backgroundColor: '#eff6ff',
+  },
+  projectHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  projectInfo: {
+    flex: 1,
+  },
+  projectName: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  clientName: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 4,
+  },
+  projectRate: {
+    fontSize: 14,
+    color: '#059669',
+  },
+  projectStats: {
+    alignItems: 'flex-end',
+  },
+  statsLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    marginBottom: 4,
+  },
+  statsValue: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 8,
+  },
+  timerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  startTimerButton: {
+    backgroundColor: '#3b82f6',
+  },
+  pauseTimerButton: {
+    backgroundColor: '#f59e0b',
+  },
+  timerButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  recentEntriesCard: {
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginBottom: 32,
+    borderRadius: 12,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 16,
+  },
+  entryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  entryInfo: {
+    flex: 1,
+  },
+  entryProject: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  entryDetails: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+  entryTime: {
+    alignItems: 'flex-end',
+  },
+  entryDuration: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 2,
+  },
+  entryEarnings: {
+    fontSize: 14,
+    color: '#059669',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 32,
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: '500',
+    color: '#64748b',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 24,
+    width: width - 40,
+    maxWidth: 400,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  inputError: {
+    borderColor: '#dc2626',
+    backgroundColor: '#fef2f2',
+  },
+  pickerContainer: {
+    marginBottom: 16,
+  },
+  pickerLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1e293b',
+    marginBottom: 8,
+  },
+  pickerScroll: {
+    maxHeight: 120,
+  },
+  pickerOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 4,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pickerOptionSelected: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#3b82f6',
+  },
+  pickerOptionText: {
+    fontSize: 16,
+    color: '#64748b',
+  },
+  pickerOptionTextSelected: {
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
+  noClientsText: {
+    fontSize: 16,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#e2e8f0',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#64748b',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+});
